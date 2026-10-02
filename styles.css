@@ -55,6 +55,41 @@ button { cursor: pointer; }
 }
 .topbar h1 { font-size: 1.25rem; margin: 0; letter-spacing: -0.01em; }
 
+.pill {
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.gate {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 24px 16px;
+  background: var(--bg);
+}
+.gate-card {
+  width: min(360px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  text-align: center;
+}
+.gate-card img { border-radius: 18px; }
+.gate-card h2 { margin: 0; font-size: 1.4rem; }
+.gate-card p { margin: 0 0 8px; color: var(--muted); }
+.gate-card .btn { width: 100%; }
+
 .icon-btn {
   border: 0;
   background: transparent;
@@ -305,6 +340,7 @@ input:focus-visible, button:focus-visible { outline: 2px solid var(--primary); o
   background: none;
 }
 
+#account .btn { align-self: flex-start; }
 .data-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 
 .toast {

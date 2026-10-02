@@ -13,8 +13,11 @@ A simple phone-friendly app for tracking twin infants' feedings and diapers.
 
 ## Data
 
-Everything is stored in the browser's local storage on the device you use. Nothing is sent anywhere.
-Each phone keeps its own log, so use **Export backup** regularly and **Import backup** to move data between devices.
+- **Shared family log (recommended):** with Firebase set up, entries live in a Firestore database and sync live between everyone signed in.
+  Only the Google accounts listed in `firestore.rules` can see or change them. Setup steps: [SETUP-FIREBASE.md](SETUP-FIREBASE.md).
+- **This phone only:** while `firebase-config.js` is left as `null`, entries are stored only in the browser on the device you use.
+
+Either way the app keeps a copy on the phone, so it opens instantly and works offline.
 
 ## Running it
 
@@ -23,4 +26,4 @@ It's plain HTML/CSS/JS with no build step.
 - **Locally:** `python3 -m http.server` in this folder, then open http://localhost:8000.
 - **On your phone:** host it anywhere that serves static files. With GitHub Pages: repo **Settings → Pages**, pick the branch and `/ (root)`. Open the URL on your phone, then use **Share → Add to Home Screen** (iOS) or **Install app** (Android).
 
-When you change files, bump `CACHE` in `sw.js` and `APP_VERSION` in `app.js`. Installed copies check for updates whenever they are opened and reload themselves.
+When you change files, bump `CACHE` in `sw.js` and `APP_VERSION` in `app.js`. `vendor/firebase.js` is a bundled copy of the Firebase SDK; rebuild it with `scripts/build-firebase.sh`. Installed copies check for updates whenever they are opened and reload themselves.

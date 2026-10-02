@@ -1,7 +1,7 @@
 'use strict';
 
 // Keep in step with CACHE in sw.js; shown in Settings so you can tell which version is running.
-const APP_VERSION = 5;
+const APP_VERSION = 6;
 const STORAGE_KEY = 'twintrack.v1';
 const ML_PER_OZ = 29.5735;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -500,29 +500,19 @@ function saveEntry() {
   if (note) records[0].note = note;
 
   if (editingId) {
-    const idx = state.events.findIndex((e) => e.id === editingId);
-    if (idx !== -1) state.events[idx] = { id: editingId, babyId: form.who[0], time, ...records[0] };
+    writeEvents([{ id: editingId, babyId: form.who[0], time, ...records[0] }]);
   } else {
-    for (const babyId of form.who) {
-      for (const r of records) state.events.push({ id: uid(), babyId, time, ...r });
-    }
+    writeEvents(form.who.flatMap((babyId) => records.map((r) => ({ id: uid(), babyId, time, ...r }))));
   }
-  save();
-  render();
   toast(editingId ? 'Entry updated' : 'Saved');
   return true;
 }
 
 function deleteEntry(id) {
-  const idx = state.events.findIndex((e) => e.id === id);
-  if (idx === -1) return;
-  const [removed] = state.events.splice(idx, 1);
-  save();
-  render();
-  toast('Entry deleted', {
-    label: 'Undo',
-    run: () => { state.events.push(removed); save(); render(); },
-  });
+  const removed = state.events.find((e) => e.id === id);
+  if (!removed) return;
+  removeEvent(id);
+  toast('Entry deleted', { label: 'Undo', run: () => writeEvents([removed]) });
 }
 
 // ---------- settings ----------
@@ -535,6 +525,7 @@ function openSettings() {
     </div>`).join('');
   setSeg($('#settings-dialog .seg[data-field="unit"]'), state.settings.unit);
   $('#app-version').textContent = APP_VERSION;
+  renderAccount();
   $('#settings-dialog').showModal();
 }
 
@@ -554,9 +545,10 @@ function stamp() {
   return toLocalInput(new Date()).slice(0, 10);
 }
 
-function exportCsv() {
+function exportCsv(events) {
   const rows = [['date', 'time', 'baby', 'type', 'method', 'amount_ml', 'amount_oz', 'contents', 'side', 'minutes', 'wet', 'dirty', 'note']];
-  for (const e of sortedEvents().reverse()) {
+  const oldestFirst = [...events].sort((a, b) => new Date(a.time) - new Date(b.time));
+  for (const e of oldestFirst) {
     const d = new Date(e.time);
     rows.push([
       toLocalInput(d).slice(0, 10),
@@ -579,6 +571,195 @@ function exportCsv() {
     return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
   }).join(',')).join('\n');
   download(`twin-track-${stamp()}.csv`, csv, 'text/csv');
+}
+
+// ---------- cloud sync ----------
+// With a Firebase config (firebase-config.js), entries live in Firestore and every signed-in
+// family member sees the same log live. Without one, everything stays in this browser.
+// Either way the in-memory state is mirrored to localStorage so the app opens instantly.
+
+const CLOUD_WINDOW_DAYS = 60; // how far back the live log loads; exports fetch everything
+const UPLOADED_KEY = 'twintrack.uploaded';
+const BATCH_LIMIT = 450; // Firestore allows 500 writes per batch
+
+const cloud = { config: window.FIREBASE_CONFIG || null, fb: null, auth: null, db: null, user: null, unsubs: [] };
+
+function chunks(list, size) {
+  const out = [];
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  return out;
+}
+
+function writeEvents(events) {
+  for (const e of events) {
+    const i = state.events.findIndex((x) => x.id === e.id);
+    if (i === -1) state.events.push(e);
+    else state.events[i] = e;
+  }
+  save();
+  render();
+  if (!cloud.db) return;
+  const { writeBatch, doc } = cloud.fb;
+  for (const part of chunks(events, BATCH_LIMIT)) {
+    const batch = writeBatch(cloud.db);
+    for (const e of part) batch.set(doc(cloud.db, 'events', e.id), e);
+    // Resolves once the server has it; offline writes wait in the local queue.
+    batch.commit().catch(syncError);
+  }
+}
+
+function removeEvent(id) {
+  state.events = state.events.filter((e) => e.id !== id);
+  save();
+  render();
+  if (cloud.db) cloud.fb.deleteDoc(cloud.fb.doc(cloud.db, 'events', id)).catch(syncError);
+}
+
+let babiesTimer;
+function writeBabies() {
+  save();
+  render();
+  if (!cloud.db) return;
+  clearTimeout(babiesTimer);
+  babiesTimer = setTimeout(() => {
+    cloud.fb.setDoc(cloud.fb.doc(cloud.db, 'config', 'babies'), { babies: state.babies }).catch(syncError);
+  }, 400);
+}
+
+// Every entry, not just the live window. Used for backups, CSV and erase.
+async function allEvents() {
+  if (!cloud.db) return state.events;
+  const snap = await cloud.fb.getDocs(cloud.fb.collection(cloud.db, 'events'));
+  return snap.docs.map((d) => ({ ...d.data(), id: d.id }));
+}
+
+function syncError(err) {
+  console.error('Sync error', err);
+  if (err?.code === 'permission-denied') showGate('denied');
+  else toast(`Sync problem: ${err?.code || err?.message || err}`);
+}
+
+function showGate(kind, detail) {
+  const email = detail || cloud.user?.email || 'This account';
+  const messages = {
+    signin: 'Sign in with your Google account to see and add to the family log.',
+    denied: `${email} isn't on the family list. Ask whoever set up Twin Track to add it, or use a different account.`,
+    error: `Sign-in didn't work: ${detail}`,
+  };
+  $('#gate-msg').textContent = messages[kind];
+  $('#signin-btn').hidden = kind === 'denied';
+  $('#switch-btn').hidden = kind !== 'denied';
+  $('#gate').hidden = false;
+}
+
+function renderAccount() {
+  const signedIn = !!(cloud.db && cloud.user);
+  $('#account').hidden = !signedIn;
+  if (signedIn) $('#account-email').textContent = `Signed in as ${cloud.user.email}`;
+  $('#storage-hint').textContent = signedIn
+    ? 'Entries sync to everyone signed in to the family log.'
+    : 'Entries are saved only on this device. Export a backup now and then.';
+  $('#clear-data').textContent = signedIn ? 'Erase all (everyone)' : 'Erase all';
+}
+
+function renderOnline() {
+  $('#offline').hidden = !cloud.db || navigator.onLine;
+}
+
+async function signIn() {
+  const { GoogleAuthProvider, signInWithPopup, signInWithRedirect } = cloud.fb;
+  const provider = new GoogleAuthProvider();
+  provider.setCustomParameters({ prompt: 'select_account' });
+  try {
+    await signInWithPopup(cloud.auth, provider);
+  } catch (err) {
+    if (err.code === 'auth/popup-blocked' || err.code === 'auth/operation-not-supported-in-this-environment') {
+      return signInWithRedirect(cloud.auth, provider);
+    }
+    if (err.code !== 'auth/popup-closed-by-user' && err.code !== 'auth/cancelled-popup-request') {
+      showGate('error', err.code || err.message);
+    }
+  }
+}
+
+function stopListening() {
+  cloud.unsubs.forEach((unsub) => unsub());
+  cloud.unsubs = [];
+}
+
+function listen() {
+  stopListening();
+  const { onSnapshot, query, collection, where, doc } = cloud.fb;
+  const since = addDays(startOfDay(new Date()), -CLOUD_WINDOW_DAYS).toISOString();
+  cloud.unsubs = [
+    onSnapshot(query(collection(cloud.db, 'events'), where('time', '>=', since)), (snap) => {
+      state.events = snap.docs.map((d) => ({ ...d.data(), id: d.id }));
+      save();
+      render();
+    }, syncError),
+    onSnapshot(doc(cloud.db, 'config', 'babies'), (snap) => {
+      const babies = snap.data()?.babies;
+      if (!Array.isArray(babies)) return;
+      state.babies = state.babies.map((b, i) => ({ ...b, ...(babies[i] || {}), id: b.id }));
+      save();
+      render();
+    }, syncError),
+  ];
+}
+
+// The first time this phone signs in, send up whatever it logged while it was offline-only.
+function uploadLocalEntries() {
+  if (localStorage.getItem(UPLOADED_KEY)) return;
+  localStorage.setItem(UPLOADED_KEY, new Date().toISOString());
+  if (!state.events.length) return;
+  writeEvents([...state.events]);
+  toast(`Uploaded ${state.events.length} entries from this phone`);
+}
+
+async function onSignedIn(user, db) {
+  cloud.user = user;
+  const babiesRef = cloud.fb.doc(db, 'config', 'babies');
+  let snap = null;
+  try {
+    snap = await cloud.fb.getDoc(babiesRef); // also confirms this account is on the family list
+  } catch (err) {
+    if (err.code === 'permission-denied') return showGate('denied', user.email);
+    // Offline with nothing cached yet: carry on, the listeners catch up when back online.
+  }
+  cloud.db = db;
+  $('#gate').hidden = true;
+  if (snap && !snap.exists()) cloud.fb.setDoc(babiesRef, { babies: state.babies }).catch(syncError);
+  uploadLocalEntries();
+  listen();
+  renderAccount();
+  renderOnline();
+}
+
+function onSignedOut() {
+  stopListening();
+  cloud.user = null;
+  cloud.db = null;
+  renderAccount();
+  renderOnline();
+  showGate('signin');
+}
+
+async function startCloud() {
+  const fb = (cloud.fb = await import('./vendor/firebase.js'));
+  const app = fb.initializeApp(cloud.config);
+  cloud.auth = fb.getAuth(app);
+  const db = fb.initializeFirestore(app, {
+    localCache: fb.persistentLocalCache({ tabManager: fb.persistentMultipleTabManager() }),
+    ignoreUndefinedProperties: true,
+  });
+  if (window.TWIN_TRACK_EMULATOR) {
+    // Local testing against the Firebase emulators.
+    fb.connectAuthEmulator(cloud.auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+    fb.connectFirestoreEmulator(db, '127.0.0.1', 8080);
+    window.__twinTrack = { fb, auth: cloud.auth };
+  }
+  fb.getRedirectResult(cloud.auth).catch((err) => showGate('error', err.code || err.message));
+  fb.onAuthStateChanged(cloud.auth, (user) => (user ? onSignedIn(user, db) : onSignedOut()));
 }
 
 // ---------- events ----------
@@ -667,15 +848,25 @@ $('#settings-form').addEventListener('input', (ev) => {
   if (!b) return;
   if (t.dataset.name !== undefined) b.name = t.value.trim() || b.name;
   if (t.dataset.color !== undefined) b.color = t.value;
-  save();
-  render();
+  writeBabies();
 });
 
-$('#export-json').addEventListener('click', () => {
-  download(`twin-track-backup-${stamp()}.json`, JSON.stringify(state, null, 2), 'application/json');
+$('#export-json').addEventListener('click', async () => {
+  try {
+    const data = { ...state, events: await allEvents() };
+    download(`twin-track-backup-${stamp()}.json`, JSON.stringify(data, null, 2), 'application/json');
+  } catch (err) {
+    syncError(err);
+  }
 });
 
-$('#export-csv').addEventListener('click', exportCsv);
+$('#export-csv').addEventListener('click', async () => {
+  try {
+    exportCsv(await allEvents());
+  } catch (err) {
+    syncError(err);
+  }
+});
 
 $('#import-json').addEventListener('click', () => $('#import-file').click());
 
@@ -685,10 +876,10 @@ $('#import-file').addEventListener('change', async (ev) => {
   if (!file) return;
   try {
     const data = normalize(JSON.parse(await file.text()));
-    if (!confirm(`Replace current data with this backup (${data.events.length} entries)?`)) return;
-    state = data;
-    save();
-    render();
+    if (!confirm(`Add the ${data.events.length} entries from this backup? Entries already here are kept.`)) return;
+    state.babies = data.babies;
+    writeBabies();
+    writeEvents(data.events);
     openSettings();
     toast('Backup restored');
   } catch (err) {
@@ -696,13 +887,38 @@ $('#import-file').addEventListener('change', async (ev) => {
   }
 });
 
-$('#clear-data').addEventListener('click', () => {
-  if (!confirm('Erase every entry on this device? This cannot be undone.')) return;
-  state.events = [];
-  save();
-  render();
-  toast('All entries erased');
+$('#clear-data').addEventListener('click', async () => {
+  const msg = cloud.db
+    ? 'Erase every entry for everyone in the family log? This cannot be undone.'
+    : 'Erase every entry on this device? This cannot be undone.';
+  if (!confirm(msg)) return;
+  try {
+    const events = await allEvents();
+    if (cloud.db) {
+      for (const part of chunks(events, BATCH_LIMIT)) {
+        const batch = cloud.fb.writeBatch(cloud.db);
+        for (const e of part) batch.delete(cloud.fb.doc(cloud.db, 'events', e.id));
+        batch.commit().catch(syncError);
+      }
+    }
+    state.events = [];
+    save();
+    render();
+    toast('All entries erased');
+  } catch (err) {
+    syncError(err);
+  }
 });
+
+$('#signin-btn').addEventListener('click', signIn);
+$('#switch-btn').addEventListener('click', () => cloud.fb.signOut(cloud.auth).then(signIn));
+$('#signout-btn').addEventListener('click', () => {
+  if (!confirm('Sign out? You will need to sign in again to see the family log.')) return;
+  $('#settings-dialog').close();
+  cloud.fb.signOut(cloud.auth);
+});
+window.addEventListener('online', renderOnline);
+window.addEventListener('offline', renderOnline);
 
 // Close dialogs when tapping the backdrop.
 $$('dialog').forEach((dlg) => {
@@ -711,9 +927,9 @@ $$('dialog').forEach((dlg) => {
   });
 });
 
-// Keep in sync if the app is open in another tab.
+// Keep in sync if the app is open in another tab (cloud mode syncs through Firestore instead).
 window.addEventListener('storage', (ev) => {
-  if (ev.key === STORAGE_KEY) {
+  if (ev.key === STORAGE_KEY && !cloud.db) {
     state = load();
     render();
   }
@@ -730,6 +946,13 @@ document.addEventListener('visibilitychange', () => {
 setInterval(render, 60 * 1000);
 
 render();
+
+if (cloud.config) {
+  startCloud().catch((err) => {
+    console.error('Could not start sync', err);
+    showGate('error', err.message);
+  });
+}
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   const hadController = !!navigator.serviceWorker.controller;

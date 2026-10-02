@@ -17,7 +17,7 @@
 </head>
 <body>
   <header class="topbar">
-    <h1>Twin Track</h1>
+    <h1>Twin Track <span id="offline" class="pill" hidden>Offline · will sync</span></h1>
     <button id="settings-btn" class="icon-btn" aria-label="Settings">⚙︎</button>
   </header>
 
@@ -140,9 +140,15 @@
         </div>
       </fieldset>
 
+      <fieldset id="account" hidden>
+        <legend>Account</legend>
+        <p class="hint" id="account-email"></p>
+        <button type="button" class="btn secondary" id="signout-btn">Sign out</button>
+      </fieldset>
+
       <fieldset>
         <legend>Data</legend>
-        <p class="hint">Entries are saved only on this device. Export a backup now and then.</p>
+        <p class="hint" id="storage-hint">Entries are saved only on this device. Export a backup now and then.</p>
         <p class="hint">App version <span id="app-version"></span></p>
         <div class="data-btns">
           <button type="button" class="btn secondary" id="export-json">Export backup</button>
@@ -160,8 +166,20 @@
     </form>
   </dialog>
 
+  <!-- Shown in cloud mode until a family member signs in -->
+  <div id="gate" class="gate" hidden>
+    <div class="gate-card">
+      <img src="icons/icon.svg" alt="" width="72" height="72">
+      <h2>Twin Track</h2>
+      <p id="gate-msg"></p>
+      <button type="button" id="signin-btn" class="btn primary">Sign in with Google</button>
+      <button type="button" id="switch-btn" class="btn secondary" hidden>Use a different account</button>
+    </div>
+  </div>
+
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
+  <script src="firebase-config.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
