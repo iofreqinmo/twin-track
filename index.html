@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Twin Track</title>
+  <meta name="description" content="Track feeding and diapers for twins.">
+  <meta name="theme-color" content="#f6f4f1" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#16181d" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Twin Track">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>Twin Track</h1>
+    <button id="settings-btn" class="icon-btn" aria-label="Settings">⚙︎</button>
+  </header>
+
+  <main>
+    <section id="cards" class="cards" aria-label="Babies"></section>
+
+    <div class="both-row">
+      <button class="btn secondary" data-quick="feed" data-baby="both">🍼 Feed both</button>
+      <button class="btn secondary" data-quick="diaper" data-baby="both">💧 Change both</button>
+    </div>
+
+    <section class="history">
+      <div class="history-head">
+        <h2>History</h2>
+        <div id="filter" class="seg small" role="group" aria-label="Filter by baby"></div>
+      </div>
+      <div id="history-list"></div>
+      <button id="more-btn" class="btn ghost" hidden>Show more</button>
+    </section>
+  </main>
+
+  <!-- Add / edit entry -->
+  <dialog id="entry-dialog">
+    <form id="entry-form" method="dialog">
+      <h2 id="entry-title">New entry</h2>
+
+      <fieldset>
+        <legend>Who</legend>
+        <div id="who" class="chips"></div>
+        <p id="who-hint" class="hint" hidden>Amounts are per baby.</p>
+      </fieldset>
+
+      <fieldset>
+        <legend>What</legend>
+        <div class="seg" data-field="type">
+          <button type="button" data-value="feed">🍼 Feed</button>
+          <button type="button" data-value="diaper">💧 Diaper</button>
+        </div>
+      </fieldset>
+
+      <div data-show="type=feed">
+        <fieldset>
+          <legend>How</legend>
+          <div class="seg" data-field="method">
+            <button type="button" data-value="bottle">Bottle</button>
+            <button type="button" data-value="breast">Breast</button>
+          </div>
+        </fieldset>
+
+        <div data-show="method=bottle">
+          <label class="field">
+            <span>Amount (<span class="unit-label">oz</span>)</span>
+            <input id="amount" type="number" inputmode="decimal" min="0">
+          </label>
+          <div class="amount-presets" id="amount-presets"></div>
+          <fieldset>
+            <legend>Contents</legend>
+            <div class="seg" data-field="milk">
+              <button type="button" data-value="breastmilk">Breast milk</button>
+              <button type="button" data-value="formula">Formula</button>
+            </div>
+          </fieldset>
+        </div>
+
+        <div data-show="method=breast">
+          <fieldset>
+            <legend>Side</legend>
+            <div class="seg" data-field="side">
+              <button type="button" data-value="L">Left</button>
+              <button type="button" data-value="R">Right</button>
+              <button type="button" data-value="LR">Both</button>
+            </div>
+          </fieldset>
+          <label class="field">
+            <span>Duration (minutes)</span>
+            <input id="minutes" type="number" inputmode="numeric" min="0" step="1">
+          </label>
+        </div>
+      </div>
+
+      <div data-show="type=diaper">
+        <fieldset>
+          <legend>Diaper</legend>
+          <div class="seg" data-field="diaper">
+            <button type="button" data-value="wet">Wet</button>
+            <button type="button" data-value="dirty">Dirty</button>
+            <button type="button" data-value="both">Both</button>
+          </div>
+        </fieldset>
+      </div>
+
+      <label class="field">
+        <span>Time</span>
+        <input id="time" type="datetime-local" required>
+      </label>
+
+      <label class="field">
+        <span>Note</span>
+        <input id="note" type="text" placeholder="Optional" maxlength="200">
+      </label>
+
+      <div class="actions">
+        <button type="button" id="delete-btn" class="btn danger" hidden>Delete</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn ghost" data-close>Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- Settings -->
+  <dialog id="settings-dialog">
+    <form id="settings-form" method="dialog">
+      <h2>Settings</h2>
+
+      <fieldset>
+        <legend>Babies</legend>
+        <div id="baby-settings"></div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Bottle units</legend>
+        <div class="seg" data-field="unit">
+          <button type="button" data-value="oz">oz</button>
+          <button type="button" data-value="ml">ml</button>
+        </div>
+      </fieldset>
+
+      <fieldset>
+        <legend>Data</legend>
+        <p class="hint">Entries are saved only on this device. Export a backup now and then.</p>
+        <div class="data-btns">
+          <button type="button" class="btn secondary" id="export-json">Export backup</button>
+          <button type="button" class="btn secondary" id="import-json">Import backup</button>
+          <button type="button" class="btn secondary" id="export-csv">Export CSV</button>
+          <button type="button" class="btn danger" id="clear-data">Erase all</button>
+        </div>
+        <input type="file" id="import-file" accept="application/json,.json" hidden>
+      </fieldset>
+
+      <div class="actions">
+        <span class="spacer"></span>
+        <button type="submit" class="btn primary">Done</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
