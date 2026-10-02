@@ -125,15 +125,10 @@ function formatTime(date) {
   return new Date(date).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
-function formatAgo(date) {
-  const mins = Math.floor((Date.now() - new Date(date)) / 60000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (h < 24) return m ? `${h}h ${m}m ago` : `${h}h ago`;
-  const d = Math.floor(h / 24);
-  return `${d}d ${h % 24}h ago`;
+// Clock time, with the day added when it wasn't today (e.g. "Yesterday 11:40 PM").
+function formatWhen(date) {
+  const label = dayLabel(date, true);
+  return label === 'Today' ? formatTime(date) : `${label} ${formatTime(date)}`;
 }
 
 function dayKey(date) {
@@ -219,12 +214,12 @@ function renderCards() {
         <h2>${babyLabel(b)}</h2>
         <div class="since">
           Last fed
-          <strong data-ago="${lastFeed ? lastFeed.time : ''}">${lastFeed ? formatAgo(lastFeed.time) : '—'}</strong>
+          <strong>${lastFeed ? formatWhen(lastFeed.time) : '—'}</strong>
           <span class="detail">${escapeHtml(feedDetail)}</span>
         </div>
         <div class="since">
           Last diaper
-          <strong data-ago="${lastDiaper ? lastDiaper.time : ''}">${lastDiaper ? formatAgo(lastDiaper.time) : '—'}</strong>
+          <strong>${lastDiaper ? formatWhen(lastDiaper.time) : '—'}</strong>
         </div>
         <div class="stats">
           <div><b>${t.feeds}</b><span>feeds</span></div>
@@ -235,12 +230,6 @@ function renderCards() {
         <button class="btn log-btn" data-log="${b.id}" aria-label="Log for ${escapeHtml(b.name)}">＋ Log</button>
       </article>`;
   }).join('');
-}
-
-function refreshAgo() {
-  $$('[data-ago]').forEach((el) => {
-    if (el.dataset.ago) el.textContent = formatAgo(el.dataset.ago);
-  });
 }
 
 function renderFilter() {
@@ -718,7 +707,8 @@ document.addEventListener('visibilitychange', () => {
   if (!document.hidden) render();
 });
 
-setInterval(refreshAgo, 30 * 1000);
+// Re-render each minute so "Today" rolls over to "Yesterday" after midnight.
+setInterval(render, 60 * 1000);
 
 render();
 
