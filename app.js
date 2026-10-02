@@ -1,7 +1,7 @@
 'use strict';
 
 // Keep in step with CACHE in sw.js; shown in Settings so you can tell which version is running.
-const APP_VERSION = 6;
+const APP_VERSION = 7;
 const STORAGE_KEY = 'twintrack.v1';
 const ML_PER_OZ = 29.5735;
 const DAY_MS = 24 * 60 * 60 * 1000;

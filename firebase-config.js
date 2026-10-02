@@ -9,6 +9,5 @@ const TWIN_TRACK_FIREBASE = {
   appId: '1:189507790684:web:a9c59d857745e6c0544399',
 };
 
-// Not switched on yet: finish Authentication, Firestore and the rules first, then change
-// this line to `window.FIREBASE_CONFIG = TWIN_TRACK_FIREBASE;`. While null, entries stay on each device.
-window.FIREBASE_CONFIG = null;
+// Set this to null to switch the shared log off and keep entries only on each device.
+window.FIREBASE_CONFIG = TWIN_TRACK_FIREBASE;
