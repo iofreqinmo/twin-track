@@ -1,5 +1,5 @@
 // Bump CACHE when shipping changes so phones pick up the new version.
-const CACHE = 'twintrack-v2';
+const CACHE = 'twintrack-v3';
 const ASSETS = [
   './',
   'index.html',

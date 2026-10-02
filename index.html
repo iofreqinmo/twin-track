@@ -24,60 +24,44 @@
   <main>
     <section id="cards" class="cards" aria-label="Babies"></section>
 
-    <div class="both-row">
-      <button class="btn secondary" data-quick="feed" data-baby="both">🍼 Feed both</button>
-      <button class="btn secondary" data-quick="diaper" data-baby="both">💧 Change both</button>
-    </div>
-
     <section class="history">
       <h2>History</h2>
       <div class="history-head">
         <div id="view" class="seg small" role="group" aria-label="View">
-          <button type="button" data-view="log">Log</button>
+          <button type="button" data-view="today">Today</button>
           <button type="button" data-view="week">Last 7 days</button>
         </div>
         <div id="filter" class="seg small" role="group" aria-label="Filter by baby"></div>
       </div>
-      <div id="history-list"></div>
-      <div id="week" hidden></div>
-      <button id="more-btn" class="btn ghost" hidden>Show more</button>
+      <div id="history-content"></div>
     </section>
   </main>
 
   <!-- Add / edit entry -->
   <dialog id="entry-dialog">
     <form id="entry-form" method="dialog">
-      <h2 id="entry-title">New entry</h2>
+      <h2 id="entry-title">Log</h2>
 
       <fieldset>
         <legend>Who</legend>
         <div id="who" class="chips"></div>
-        <p id="who-hint" class="hint" hidden>Amounts are per baby.</p>
       </fieldset>
 
-      <fieldset>
-        <legend>What</legend>
-        <div class="seg" data-field="type">
-          <button type="button" data-value="feed">🍼 Feed</button>
-          <button type="button" data-value="diaper">💧 Diaper</button>
+      <section id="feed-section" class="sheet-section">
+        <h3>🍼 Feeding</h3>
+        <div class="seg" data-field="method" aria-label="Feeding">
+          <button type="button" data-value="none">None</button>
+          <button type="button" data-value="bottle">Bottle</button>
+          <button type="button" data-value="breast">Breast</button>
         </div>
-      </fieldset>
 
-      <div data-show="type=feed">
-        <fieldset>
-          <legend>How</legend>
-          <div class="seg" data-field="method">
-            <button type="button" data-value="bottle">Bottle</button>
-            <button type="button" data-value="breast">Breast</button>
-          </div>
-        </fieldset>
-
-        <div data-show="method=bottle">
+        <div data-show="method=bottle" class="sheet-fields">
           <label class="field">
-            <span>Amount (<span class="unit-label">oz</span>)</span>
+            <span>Amount (<span class="unit-label">ml</span>)</span>
             <input id="amount" type="number" inputmode="decimal" min="0">
           </label>
           <div class="amount-presets" id="amount-presets"></div>
+          <p id="who-hint" class="hint" hidden>Amount is per baby.</p>
           <fieldset>
             <legend>Contents</legend>
             <div class="seg" data-field="milk">
@@ -87,7 +71,7 @@
           </fieldset>
         </div>
 
-        <div data-show="method=breast">
+        <div data-show="method=breast" class="sheet-fields">
           <fieldset>
             <legend>Side</legend>
             <div class="seg" data-field="side">
@@ -101,18 +85,17 @@
             <input id="minutes" type="number" inputmode="numeric" min="0" step="1">
           </label>
         </div>
-      </div>
+      </section>
 
-      <div data-show="type=diaper">
-        <fieldset>
-          <legend>Diaper</legend>
-          <div class="seg" data-field="diaper">
-            <button type="button" data-value="wet">💧 Pee</button>
-            <button type="button" data-value="dirty">💩 Poo</button>
-            <button type="button" data-value="both">Both</button>
-          </div>
-        </fieldset>
-      </div>
+      <section id="diaper-section" class="sheet-section">
+        <h3>🧷 Diaper</h3>
+        <div class="seg" data-field="diaper" aria-label="Diaper">
+          <button type="button" data-value="none">None</button>
+          <button type="button" data-value="wet">💧 Pee</button>
+          <button type="button" data-value="dirty">💩 Poop</button>
+          <button type="button" data-value="both">Both</button>
+        </div>
+      </section>
 
       <label class="field">
         <span>Time</span>

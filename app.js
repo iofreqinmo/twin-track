@@ -3,7 +3,6 @@
 const STORAGE_KEY = 'twintrack.v1';
 const ML_PER_OZ = 29.5735;
 const DAY_MS = 24 * 60 * 60 * 1000;
-const DAYS_PER_PAGE = 3;
 const WEEK_DAYS = 7;
 const SCHEMA_VERSION = 2;
 
@@ -37,8 +36,8 @@ const BABY_ICONS = {
 
 let state = load();
 let filter = 'all';
-let view = 'log';
-let daysShown = DAYS_PER_PAGE;
+let view = 'today';
+let expandedDay = null; // `${babyId}|${dayStartMs}` row opened in the 7-day table
 let editingId = null;
 let form = {};
 let initialTime = null; // { input, iso } so an untouched time field keeps full precision
@@ -142,17 +141,14 @@ function dayKey(date) {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 }
 
-function dayLabel(date) {
+function dayLabel(date, short = false) {
   const d = new Date(date);
   const today = new Date();
   const yesterday = new Date(Date.now() - DAY_MS);
   if (dayKey(d) === dayKey(today)) return 'Today';
   if (dayKey(d) === dayKey(yesterday)) return 'Yesterday';
+  if (short) return `${d.toLocaleDateString([], { weekday: 'short' })} ${d.getMonth() + 1}/${d.getDate()}`;
   return d.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
-}
-
-function plural(n, word) {
-  return `${n} ${word}${n === 1 ? '' : 's'}`;
 }
 
 function sideLabel(side) {
@@ -161,7 +157,7 @@ function sideLabel(side) {
 
 function describe(e) {
   if (e.type === 'diaper') {
-    const kind = e.wet && e.dirty ? 'Pee + poo' : e.dirty ? 'Poo' : 'Pee';
+    const kind = e.wet && e.dirty ? 'Pee + poop' : e.dirty ? 'Poop' : 'Pee';
     return { icon: e.dirty ? '💩' : '💧', text: kind };
   }
   if (e.method === 'breast') {
@@ -202,17 +198,6 @@ function render() {
   renderView();
 }
 
-function renderView() {
-  $$('#view button').forEach((btn) => btn.setAttribute('aria-pressed', btn.dataset.view === view));
-  $('#history-list').hidden = view !== 'log';
-  $('#week').hidden = view !== 'week';
-  if (view === 'log') renderHistory();
-  else {
-    $('#more-btn').hidden = true;
-    renderWeek();
-  }
-}
-
 function renderCards() {
   const events = sortedEvents();
   const since = Date.now() - DAY_MS;
@@ -220,11 +205,7 @@ function renderCards() {
     const mine = events.filter((e) => e.babyId === b.id);
     const lastFeed = mine.find((e) => e.type === 'feed');
     const lastDiaper = mine.find((e) => e.type === 'diaper');
-    const recent = mine.filter((e) => new Date(e.time) >= since);
-    const feeds = recent.filter((e) => e.type === 'feed');
-    const bottleMl = feeds.reduce((sum, e) => sum + (e.amountMl || 0), 0);
-    const wet = recent.filter((e) => e.type === 'diaper' && e.wet).length;
-    const dirty = recent.filter((e) => e.type === 'diaper' && e.dirty).length;
+    const t = totals(mine.filter((e) => new Date(e.time) >= since));
 
     let feedDetail = '';
     if (lastFeed) {
@@ -246,15 +227,12 @@ function renderCards() {
           <strong data-ago="${lastDiaper ? lastDiaper.time : ''}">${lastDiaper ? formatAgo(lastDiaper.time) : '—'}</strong>
         </div>
         <div class="stats">
-          <div><b>${feeds.length}</b><span>feeds</span></div>
-          <div><b>${wet}</b><span>pees</span></div>
-          <div><b>${dirty}</b><span>poos</span></div>
+          <div><b>${t.feeds}</b><span>feeds</span></div>
+          <div><b>${t.poops}</b><span>poops</span></div>
+          <div><b>${t.pees}</b><span>pees</span></div>
         </div>
-        <div class="stats-label">last 24h${bottleMl ? ` · ${formatAmount(bottleMl)} eaten` : ''}</div>
-        <div class="card-btns">
-          <button class="btn" data-quick="feed" data-baby="${b.id}" aria-label="Log feed for ${escapeHtml(b.name)}">🍼</button>
-          <button class="btn" data-quick="diaper" data-baby="${b.id}" aria-label="Log diaper for ${escapeHtml(b.name)}">💧</button>
-        </div>
+        <div class="stats-label">last 24h${t.ml ? ` · ${formatAmount(t.ml)} eaten` : ''}</div>
+        <button class="btn log-btn" data-log="${b.id}" aria-label="Log for ${escapeHtml(b.name)}">＋ Log</button>
       </article>`;
   }).join('');
 }
@@ -272,43 +250,13 @@ function renderFilter() {
   ).join('');
 }
 
-function renderHistory() {
-  const events = sortedEvents().filter((e) => filter === 'all' || e.babyId === filter);
-  const list = $('#history-list');
-  if (!events.length) {
-    list.innerHTML = '<p class="empty">Nothing logged yet. Tap 🍼 or 💧 above to start.</p>';
-    $('#more-btn').hidden = true;
-    return;
-  }
+function renderView() {
+  $$('#view button').forEach((btn) => btn.setAttribute('aria-pressed', btn.dataset.view === view));
+  $('#history-content').innerHTML = view === 'today' ? todayHtml() : weekHtml();
+}
 
-  const groups = [];
-  for (const e of events) {
-    const key = dayKey(e.time);
-    if (!groups.length || groups[groups.length - 1].key !== key) groups.push({ key, time: e.time, items: [] });
-    groups[groups.length - 1].items.push(e);
-  }
-
-  list.innerHTML = groups.slice(0, daysShown).map((g) => {
-    const feeds = g.items.filter((e) => e.type === 'feed').length;
-    const diapers = g.items.length - feeds;
-    return `
-      <div class="day">
-        <h3><span>${dayLabel(g.time)}</span><span>${plural(feeds, 'feed')} · ${plural(diapers, 'diaper')}</span></h3>
-        <ul>${g.items.map((e) => {
-          const b = baby(e.babyId) || { name: '?', color: '#999' };
-          const d = describe(e);
-          return `<li><button class="entry" data-edit="${e.id}" style="--baby-color:${escapeHtml(b.color)}">
-            <time>${formatTime(e.time)}</time>
-            <span class="dot" aria-hidden="true"></span>
-            <span class="desc">${d.icon} ${escapeHtml(d.text)}
-              <small>${escapeHtml(b.name)}${e.note ? ' · ' + escapeHtml(e.note) : ''}</small>
-            </span>
-          </button></li>`;
-        }).join('')}</ul>
-      </div>`;
-  }).join('');
-
-  $('#more-btn').hidden = groups.length <= daysShown;
+function visibleBabies() {
+  return state.babies.filter((b) => filter === 'all' || b.id === filter);
 }
 
 function startOfDay(date) {
@@ -317,64 +265,126 @@ function startOfDay(date) {
   return d;
 }
 
-function dayTotals(events) {
+function addDays(date, n) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + n);
+  return d;
+}
+
+function eventsIn(babyId, start, end) {
+  return state.events.filter((e) => {
+    const t = new Date(e.time);
+    return e.babyId === babyId && t >= start && t < end;
+  });
+}
+
+function totals(events) {
+  const bottles = events.filter((e) => e.type === 'feed' && e.amountMl);
   return {
-    ml: events.reduce((sum, e) => sum + (e.type === 'feed' && e.amountMl ? e.amountMl : 0), 0),
+    ml: bottles.reduce((sum, e) => sum + e.amountMl, 0),
+    bottles: bottles.length,
     feeds: events.filter((e) => e.type === 'feed').length,
     pees: events.filter((e) => e.type === 'diaper' && e.wet).length,
-    poos: events.filter((e) => e.type === 'diaper' && e.dirty).length,
+    poops: events.filter((e) => e.type === 'diaper' && e.dirty).length,
   };
 }
 
-function renderWeek() {
-  const days = [];
-  for (let i = 0; i < WEEK_DAYS; i++) {
-    const start = startOfDay(new Date());
-    start.setDate(start.getDate() - i);
-    const end = new Date(start);
-    end.setDate(end.getDate() + 1);
-    days.push({ start, end });
-  }
-  const babies = state.babies.filter((b) => filter === 'all' || b.id === filter);
+function entryListHtml(events) {
+  if (!events.length) return '<p class="empty">No entries.</p>';
+  return `<ul class="entries">${events.map((e) => {
+    const b = baby(e.babyId) || { name: '?', color: '#999' };
+    const d = describe(e);
+    return `<li><button class="entry" data-edit="${e.id}" style="--baby-color:${escapeHtml(b.color)}">
+      <time>${formatTime(e.time)}</time>
+      <span class="dot" aria-hidden="true"></span>
+      <span class="desc">${d.icon} ${escapeHtml(d.text)}
+        <small>${escapeHtml(b.name)}${e.note ? ' · ' + escapeHtml(e.note) : ''}</small>
+      </span>
+    </button></li>`;
+  }).join('')}</ul>`;
+}
 
-  $('#week').innerHTML = babies.map((b) => {
-    const mine = state.events.filter((e) => e.babyId === b.id);
-    const rows = days.map((d) => ({
-      ...d,
-      totals: dayTotals(mine.filter((e) => { const t = new Date(e.time); return t >= d.start && t < d.end; })),
-    }));
+function todayHtml() {
+  const start = startOfDay(new Date());
+  const end = addDays(start, 1);
+  const babies = visibleBabies();
+
+  const summaries = babies.map((b) => {
+    const t = totals(eventsIn(b.id, start, end));
+    return `
+      <div class="summary" style="--baby-color:${escapeHtml(b.color)}">
+        <h3>${babyLabel(b)}</h3>
+        <div class="tiles">
+          <div><b>${t.ml ? formatAmount(t.ml) : '—'}</b><span>total</span></div>
+          <div><b>${t.bottles ? formatAmount(t.ml / t.bottles) : '—'}</b><span>avg / feed</span></div>
+          <div><b>${t.poops}</b><span>💩 poops</span></div>
+          <div><b>${t.pees}</b><span>💧 pees</span></div>
+        </div>
+      </div>`;
+  }).join('');
+
+  const ids = babies.map((b) => b.id);
+  const today = sortedEvents().filter((e) => ids.includes(e.babyId) && new Date(e.time) >= start && new Date(e.time) < end);
+  const list = today.length
+    ? entryListHtml(today)
+    : '<p class="empty">Nothing logged today yet. Tap ＋ Log above to start.</p>';
+  return `<div class="summaries">${summaries}</div><h3 class="list-head">Today's entries</h3>${list}`;
+}
+
+function weekHtml() {
+  const today = startOfDay(new Date());
+  const days = Array.from({ length: WEEK_DAYS }, (_, i) => {
+    const start = addDays(today, -i);
+    return { start, end: addDays(start, 1) };
+  });
+  const amount = (ml) => (ml ? formatAmount(ml) : '—');
+  const count = (n) => (n ? Math.round(n * 10) / 10 : '—');
+
+  return visibleBabies().map((b) => {
+    const rows = days.map((d) => {
+      const events = eventsIn(b.id, d.start, d.end);
+      return { ...d, events, t: totals(events), key: `${b.id}|${d.start.getTime()}` };
+    });
+
     // Average completed days since tracking began, so a partial today or days before
     // the first entry don't drag it down. Fall back to today if that's all there is.
-    const first = mine.reduce((min, e) => Math.min(min, new Date(e.time)), Infinity);
+    const first = state.events.filter((e) => e.babyId === b.id).reduce((min, e) => Math.min(min, new Date(e.time)), Infinity);
     const tracked = rows.filter((r) => r.end > first);
     const counted = tracked.length > 1 ? tracked.slice(1) : tracked;
-    const avg = (key) => counted.length ? counted.reduce((s, r) => s + r.totals[key], 0) / counted.length : 0;
-    const num = (n) => (n ? Math.round(n * 10) / 10 : '—');
+    const sum = (key) => counted.reduce((s, r) => s + r.t[key], 0);
+    const perDay = (key) => (counted.length ? sum(key) / counted.length : 0);
+
+    const body = rows.map((r) => {
+      const open = expandedDay === r.key;
+      const row = `
+        <tr class="day-row" data-day="${r.key}" aria-expanded="${open}">
+          <th><span class="chev" aria-hidden="true">›</span>${dayLabel(r.start, true)}</th>
+          <td>${amount(r.t.ml)}</td>
+          <td>${r.t.bottles ? formatAmount(r.t.ml / r.t.bottles) : '—'}</td>
+          <td>${count(r.t.poops)}</td>
+          <td>${count(r.t.pees)}</td>
+        </tr>`;
+      if (!open) return row;
+      const events = [...r.events].sort((x, y) => new Date(y.time) - new Date(x.time));
+      return row + `<tr class="day-detail"><td colspan="5">${entryListHtml(events)}</td></tr>`;
+    }).join('');
 
     return `
       <div class="week-baby" style="--baby-color:${escapeHtml(b.color)}">
         <h3>${babyLabel(b)}</h3>
         <table class="week-table">
-          <thead><tr><th>Day</th><th>Eaten</th><th>Feeds</th><th>💧 Pees</th><th>💩 Poos</th></tr></thead>
-          <tbody>${rows.map((r) => `
-            <tr>
-              <th>${dayLabel(r.start)}</th>
-              <td>${r.totals.ml ? formatAmount(r.totals.ml) : '—'}</td>
-              <td>${num(r.totals.feeds)}</td>
-              <td>${num(r.totals.pees)}</td>
-              <td>${num(r.totals.poos)}</td>
-            </tr>`).join('')}
-          </tbody>
+          <thead><tr><th>Day</th><th>Total</th><th>Avg/feed</th><th>Poops</th><th>Pees</th></tr></thead>
+          <tbody>${body}</tbody>
           <tfoot><tr>
             <th>Daily avg</th>
-            <td>${avg('ml') ? formatAmount(avg('ml')) : '—'}</td>
-            <td>${num(avg('feeds'))}</td>
-            <td>${num(avg('pees'))}</td>
-            <td>${num(avg('poos'))}</td>
+            <td>${amount(perDay('ml'))}</td>
+            <td>${sum('bottles') ? formatAmount(sum('ml') / sum('bottles')) : '—'}</td>
+            <td>${count(perDay('poops'))}</td>
+            <td>${count(perDay('pees'))}</td>
           </tr></tfoot>
         </table>
       </div>`;
-  }).join('') + '<p class="hint">Eaten counts bottle feeds; breastfeeds count toward Feeds. Daily avg covers full days only.</p>';
+  }).join('') + '<p class="hint">Tap a day to see or edit its entries. Volume counts bottle feeds. Daily avg covers full days only.</p>';
 }
 
 // ---------- entry dialog ----------
@@ -391,43 +401,46 @@ function syncEntryForm() {
     el.hidden = form[key] !== val;
   });
   $$('.chip', dlg).forEach((chip) => chip.setAttribute('aria-pressed', form.who.includes(chip.dataset.baby)));
-  $('#who-hint').hidden = !(form.who.length > 1 && form.type === 'feed' && form.method === 'bottle');
+  $('#who-hint').hidden = !(form.who.length > 1 && form.method === 'bottle');
 }
 
-function lastValue(type, key) {
-  const e = sortedEvents().find((ev) => ev.type === type && ev[key] != null && ev[key] !== '');
+function lastValue(key, babyId) {
+  const e = sortedEvents().find((ev) => ev.type === 'feed' && (!babyId || ev.babyId === babyId) && ev[key] != null && ev[key] !== '');
   return e ? e[key] : undefined;
 }
 
-function openEntry({ type = 'feed', babyId, event } = {}) {
+function openEntry({ babyId, event } = {}) {
   editingId = event ? event.id : null;
   const unit = state.settings.unit;
+  const dlg = $('#entry-dialog');
 
   if (event) {
     form = {
       who: [event.babyId],
-      type: event.type,
-      method: event.method || 'bottle',
+      method: event.type === 'feed' ? event.method || 'bottle' : 'none',
       milk: event.milk || 'formula',
       side: event.side || 'L',
-      diaper: event.wet && event.dirty ? 'both' : event.dirty ? 'dirty' : 'wet',
+      diaper: event.type !== 'diaper' ? 'none' : event.wet && event.dirty ? 'both' : event.dirty ? 'dirty' : 'wet',
     };
   } else {
-    const lastFeed = sortedEvents().find((e) => e.type === 'feed');
     form = {
-      who: babyId === 'both' ? state.babies.map((b) => b.id) : [babyId],
-      type,
-      method: lastFeed?.method || 'bottle',
-      milk: lastValue('feed', 'milk') || 'formula',
+      who: [babyId],
+      method: 'none',
+      milk: lastValue('milk', babyId) || lastValue('milk') || 'formula',
       side: 'L',
-      diaper: 'wet',
+      diaper: 'none',
     };
     // Suggest the opposite side from this baby's last single-side breastfeed.
-    const lastBreast = sortedEvents().find((e) => e.babyId === form.who[0] && e.method === 'breast' && (e.side === 'L' || e.side === 'R'));
+    const lastBreast = sortedEvents().find((e) => e.babyId === babyId && e.method === 'breast' && (e.side === 'L' || e.side === 'R'));
     if (lastBreast) form.side = lastBreast.side === 'L' ? 'R' : 'L';
   }
 
-  $('#entry-title').textContent = event ? 'Edit entry' : 'New entry';
+  // Editing changes one saved entry, so show only its section and drop the "None" choice.
+  $('#feed-section').hidden = !!event && event.type !== 'feed';
+  $('#diaper-section').hidden = !!event && event.type !== 'diaper';
+  $$('.sheet-section [data-value="none"]', dlg).forEach((btn) => (btn.hidden = !!event));
+
+  $('#entry-title').textContent = event ? 'Edit entry' : 'Log';
   $('#who').innerHTML = state.babies.map((b) =>
     `<button type="button" class="chip" data-baby="${b.id}" style="--baby-color:${escapeHtml(b.color)}">${babyLabel(b)}</button>`
   ).join('');
@@ -435,7 +448,7 @@ function openEntry({ type = 'feed', babyId, event } = {}) {
   $$('.unit-label').forEach((el) => (el.textContent = unit));
   const amount = $('#amount');
   amount.step = unit === 'ml' ? '5' : '0.5';
-  amount.value = event ? fromMl(event.amountMl) : fromMl(lastValue('feed', 'amountMl')) || '';
+  amount.value = event ? fromMl(event.amountMl) : fromMl(lastValue('amountMl', babyId) ?? lastValue('amountMl')) || '';
   const presets = unit === 'ml' ? [30, 45, 60, 75, 90, 120] : [1, 2, 3, 4, 5, 6];
   $('#amount-presets').innerHTML = presets.map((p) => `<button type="button" data-preset="${p}">${p} ${unit}</button>`).join('');
 
@@ -447,7 +460,8 @@ function openEntry({ type = 'feed', babyId, event } = {}) {
   $('#delete-btn').hidden = !event;
 
   syncEntryForm();
-  $('#entry-dialog').showModal();
+  dlg.showModal();
+  dlg.querySelector('form').scrollTop = 0;
 }
 
 function saveEntry() {
@@ -455,33 +469,46 @@ function saveEntry() {
     toast('Pick at least one baby');
     return false;
   }
+  if (form.method === 'none' && form.diaper === 'none') {
+    toast('Choose a feeding or a diaper');
+    return false;
+  }
   const input = $('#time').value;
   let time;
   if (!input) time = new Date().toISOString();
   else if (input === initialTime.input) time = initialTime.isNew ? new Date().toISOString() : initialTime.iso;
   else time = new Date(input).toISOString();
-  const details = { type: form.type, time, note: $('#note').value.trim() || undefined };
 
-  if (form.type === 'feed') {
-    details.method = form.method;
+  const records = [];
+  if (form.method !== 'none') {
+    const feed = { type: 'feed', method: form.method };
     if (form.method === 'bottle') {
-      details.amountMl = toMl($('#amount').value) ?? undefined;
-      details.milk = form.milk;
+      feed.amountMl = toMl($('#amount').value) ?? undefined;
+      feed.milk = form.milk;
     } else {
-      details.side = form.side;
+      feed.side = form.side;
       const mins = parseInt($('#minutes').value, 10);
-      details.minutes = mins > 0 ? mins : undefined;
+      feed.minutes = mins > 0 ? mins : undefined;
     }
-  } else {
-    details.wet = form.diaper === 'wet' || form.diaper === 'both';
-    details.dirty = form.diaper === 'dirty' || form.diaper === 'both';
+    records.push(feed);
   }
+  if (form.diaper !== 'none') {
+    records.push({
+      type: 'diaper',
+      wet: form.diaper === 'wet' || form.diaper === 'both',
+      dirty: form.diaper === 'dirty' || form.diaper === 'both',
+    });
+  }
+  const note = $('#note').value.trim();
+  if (note) records[0].note = note;
 
   if (editingId) {
     const idx = state.events.findIndex((e) => e.id === editingId);
-    if (idx !== -1) state.events[idx] = { id: editingId, babyId: form.who[0], ...details };
+    if (idx !== -1) state.events[idx] = { id: editingId, babyId: form.who[0], time, ...records[0] };
   } else {
-    for (const babyId of form.who) state.events.push({ id: uid(), babyId, ...details });
+    for (const babyId of form.who) {
+      for (const r of records) state.events.push({ id: uid(), babyId, time, ...r });
+    }
   }
   save();
   render();
@@ -560,9 +587,15 @@ function exportCsv() {
 
 document.addEventListener('click', (ev) => {
   const t = ev.target.closest('button');
+  const row = !t && ev.target.closest('tr[data-day]');
+  if (row) {
+    expandedDay = expandedDay === row.dataset.day ? null : row.dataset.day;
+    renderView();
+    return;
+  }
   if (!t) return;
 
-  if (t.dataset.quick) return openEntry({ type: t.dataset.quick, babyId: t.dataset.baby });
+  if (t.dataset.log) return openEntry({ babyId: t.dataset.log });
   if (t.dataset.edit) {
     const e = state.events.find((x) => x.id === t.dataset.edit);
     if (e) openEntry({ event: e });
@@ -570,7 +603,6 @@ document.addEventListener('click', (ev) => {
   }
   if (t.dataset.filter) {
     filter = t.dataset.filter;
-    daysShown = DAYS_PER_PAGE;
     renderFilter();
     renderView();
     return;
@@ -620,11 +652,6 @@ $('#delete-btn').addEventListener('click', () => {
   const id = editingId;
   $('#entry-dialog').close();
   deleteEntry(id);
-});
-
-$('#more-btn').addEventListener('click', () => {
-  daysShown += DAYS_PER_PAGE;
-  renderHistory();
 });
 
 $('#settings-btn').addEventListener('click', openSettings);
