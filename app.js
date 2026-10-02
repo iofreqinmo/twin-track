@@ -4,18 +4,40 @@ const STORAGE_KEY = 'twintrack.v1';
 const ML_PER_OZ = 29.5735;
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DAYS_PER_PAGE = 3;
+const WEEK_DAYS = 7;
+const SCHEMA_VERSION = 2;
 
 const DEFAULT_STATE = {
+  version: SCHEMA_VERSION,
   babies: [
-    { id: 'a', name: 'Baby A', color: '#d9734e' },
-    { id: 'b', name: 'Baby B', color: '#3f7fbf' },
+    { id: 'a', name: 'RCG', color: '#d9734e', icon: 'girl' },
+    { id: 'b', name: 'HDG', color: '#3f7fbf', icon: 'boy' },
   ],
   events: [],
-  settings: { unit: 'oz' },
+  settings: { unit: 'ml' },
+};
+
+// Small inline baby faces: a bow for the girl, a beanie for the boy.
+const FACE = `
+  <circle cx="16" cy="18.5" r="10.5" fill="#f6d2b4"/>
+  <circle cx="12.2" cy="19" r="1.3" fill="#3b2a20"/>
+  <circle cx="19.8" cy="19" r="1.3" fill="#3b2a20"/>
+  <circle cx="10.4" cy="22.4" r="1.6" fill="#f2a6a0" opacity="0.7"/>
+  <circle cx="21.6" cy="22.4" r="1.6" fill="#f2a6a0" opacity="0.7"/>
+  <path d="M13.4 23.2q2.6 2.2 5.2 0" fill="none" stroke="#3b2a20" stroke-width="1.2" stroke-linecap="round"/>`;
+const BABY_ICONS = {
+  girl: `<svg class="baby-icon" viewBox="0 0 32 32" aria-hidden="true">${FACE}
+    <path d="M16 8.5 9.5 4.5v8z M16 8.5l6.5-4v8z" fill="#e8679a"/>
+    <circle cx="16" cy="8.5" r="2.2" fill="#d14d84"/></svg>`,
+  boy: `<svg class="baby-icon" viewBox="0 0 32 32" aria-hidden="true">${FACE}
+    <path d="M5.6 16.5a10.4 10.4 0 0 1 20.8 0z" fill="#4a8fd8"/>
+    <rect x="5" y="15" width="22" height="3" rx="1.5" fill="#2f6fb8"/>
+    <circle cx="16" cy="5.6" r="2.6" fill="#2f6fb8"/></svg>`,
 };
 
 let state = load();
 let filter = 'all';
+let view = 'log';
 let daysShown = DAYS_PER_PAGE;
 let editingId = null;
 let form = {};
@@ -39,10 +61,18 @@ function load() {
 function normalize(data) {
   const base = structuredClone(DEFAULT_STATE);
   if (!data || !Array.isArray(data.events)) throw new Error('Not a Twin Track backup');
+  let babies = data.babies || [];
+  let settings = data.settings || {};
+  if ((data.version || 1) < 2) {
+    // v2: twins renamed from the placeholder names, and amounts shown in ml.
+    babies = babies.map((b, i) => (/^Baby [AB]$/.test(b?.name) ? { ...b, name: base.babies[i].name } : b));
+    settings = { ...settings, unit: 'ml' };
+  }
   return {
-    babies: base.babies.map((b, i) => ({ ...b, ...(data.babies?.[i] || {}), id: b.id })),
+    version: SCHEMA_VERSION,
+    babies: base.babies.map((b, i) => ({ ...b, ...(babies[i] || {}), id: b.id })),
     events: data.events.filter((e) => e && e.id && e.babyId && e.type && e.time),
-    settings: { ...base.settings, ...(data.settings || {}) },
+    settings: { ...base.settings, ...settings },
   };
 }
 
@@ -62,6 +92,10 @@ function escapeHtml(s) {
 
 function baby(id) {
   return state.babies.find((b) => b.id === id);
+}
+
+function babyLabel(b) {
+  return `${BABY_ICONS[b.icon] || ''}${escapeHtml(b.name)}`;
 }
 
 function formatAmount(ml) {
@@ -127,8 +161,8 @@ function sideLabel(side) {
 
 function describe(e) {
   if (e.type === 'diaper') {
-    const kind = e.wet && e.dirty ? 'Wet + dirty' : e.dirty ? 'Dirty' : 'Wet';
-    return { icon: e.dirty ? '💩' : '💧', text: `${kind} diaper` };
+    const kind = e.wet && e.dirty ? 'Pee + poo' : e.dirty ? 'Poo' : 'Pee';
+    return { icon: e.dirty ? '💩' : '💧', text: kind };
   }
   if (e.method === 'breast') {
     const parts = ['Breastfed'];
@@ -165,7 +199,18 @@ function toast(message, action) {
 function render() {
   renderCards();
   renderFilter();
-  renderHistory();
+  renderView();
+}
+
+function renderView() {
+  $$('#view button').forEach((btn) => btn.setAttribute('aria-pressed', btn.dataset.view === view));
+  $('#history-list').hidden = view !== 'log';
+  $('#week').hidden = view !== 'week';
+  if (view === 'log') renderHistory();
+  else {
+    $('#more-btn').hidden = true;
+    renderWeek();
+  }
 }
 
 function renderCards() {
@@ -190,7 +235,7 @@ function renderCards() {
 
     return `
       <article class="card" style="--baby-color:${escapeHtml(b.color)}">
-        <h2>${escapeHtml(b.name)}</h2>
+        <h2>${babyLabel(b)}</h2>
         <div class="since">
           Last fed
           <strong data-ago="${lastFeed ? lastFeed.time : ''}">${lastFeed ? formatAgo(lastFeed.time) : '—'}</strong>
@@ -202,10 +247,10 @@ function renderCards() {
         </div>
         <div class="stats">
           <div><b>${feeds.length}</b><span>feeds</span></div>
-          <div><b>${wet}</b><span>wet</span></div>
-          <div><b>${dirty}</b><span>dirty</span></div>
+          <div><b>${wet}</b><span>pees</span></div>
+          <div><b>${dirty}</b><span>poos</span></div>
         </div>
-        <div class="stats-label">last 24h${bottleMl ? ` · ${formatAmount(bottleMl)} bottle` : ''}</div>
+        <div class="stats-label">last 24h${bottleMl ? ` · ${formatAmount(bottleMl)} eaten` : ''}</div>
         <div class="card-btns">
           <button class="btn" data-quick="feed" data-baby="${b.id}" aria-label="Log feed for ${escapeHtml(b.name)}">🍼</button>
           <button class="btn" data-quick="diaper" data-baby="${b.id}" aria-label="Log diaper for ${escapeHtml(b.name)}">💧</button>
@@ -223,7 +268,7 @@ function refreshAgo() {
 function renderFilter() {
   const opts = [{ id: 'all', name: 'All' }, ...state.babies];
   $('#filter').innerHTML = opts.map((o) =>
-    `<button type="button" data-filter="${o.id}" aria-pressed="${filter === o.id}">${escapeHtml(o.name)}</button>`
+    `<button type="button" data-filter="${o.id}" aria-pressed="${filter === o.id}">${o.icon ? babyLabel(o) : escapeHtml(o.name)}</button>`
   ).join('');
 }
 
@@ -264,6 +309,72 @@ function renderHistory() {
   }).join('');
 
   $('#more-btn').hidden = groups.length <= daysShown;
+}
+
+function startOfDay(date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function dayTotals(events) {
+  return {
+    ml: events.reduce((sum, e) => sum + (e.type === 'feed' && e.amountMl ? e.amountMl : 0), 0),
+    feeds: events.filter((e) => e.type === 'feed').length,
+    pees: events.filter((e) => e.type === 'diaper' && e.wet).length,
+    poos: events.filter((e) => e.type === 'diaper' && e.dirty).length,
+  };
+}
+
+function renderWeek() {
+  const days = [];
+  for (let i = 0; i < WEEK_DAYS; i++) {
+    const start = startOfDay(new Date());
+    start.setDate(start.getDate() - i);
+    const end = new Date(start);
+    end.setDate(end.getDate() + 1);
+    days.push({ start, end });
+  }
+  const babies = state.babies.filter((b) => filter === 'all' || b.id === filter);
+
+  $('#week').innerHTML = babies.map((b) => {
+    const mine = state.events.filter((e) => e.babyId === b.id);
+    const rows = days.map((d) => ({
+      ...d,
+      totals: dayTotals(mine.filter((e) => { const t = new Date(e.time); return t >= d.start && t < d.end; })),
+    }));
+    // Average completed days since tracking began, so a partial today or days before
+    // the first entry don't drag it down. Fall back to today if that's all there is.
+    const first = mine.reduce((min, e) => Math.min(min, new Date(e.time)), Infinity);
+    const tracked = rows.filter((r) => r.end > first);
+    const counted = tracked.length > 1 ? tracked.slice(1) : tracked;
+    const avg = (key) => counted.length ? counted.reduce((s, r) => s + r.totals[key], 0) / counted.length : 0;
+    const num = (n) => (n ? Math.round(n * 10) / 10 : '—');
+
+    return `
+      <div class="week-baby" style="--baby-color:${escapeHtml(b.color)}">
+        <h3>${babyLabel(b)}</h3>
+        <table class="week-table">
+          <thead><tr><th>Day</th><th>Eaten</th><th>Feeds</th><th>💧 Pees</th><th>💩 Poos</th></tr></thead>
+          <tbody>${rows.map((r) => `
+            <tr>
+              <th>${dayLabel(r.start)}</th>
+              <td>${r.totals.ml ? formatAmount(r.totals.ml) : '—'}</td>
+              <td>${num(r.totals.feeds)}</td>
+              <td>${num(r.totals.pees)}</td>
+              <td>${num(r.totals.poos)}</td>
+            </tr>`).join('')}
+          </tbody>
+          <tfoot><tr>
+            <th>Daily avg</th>
+            <td>${avg('ml') ? formatAmount(avg('ml')) : '—'}</td>
+            <td>${num(avg('feeds'))}</td>
+            <td>${num(avg('pees'))}</td>
+            <td>${num(avg('poos'))}</td>
+          </tr></tfoot>
+        </table>
+      </div>`;
+  }).join('') + '<p class="hint">Eaten counts bottle feeds; breastfeeds count toward Feeds. Daily avg covers full days only.</p>';
 }
 
 // ---------- entry dialog ----------
@@ -318,14 +429,14 @@ function openEntry({ type = 'feed', babyId, event } = {}) {
 
   $('#entry-title').textContent = event ? 'Edit entry' : 'New entry';
   $('#who').innerHTML = state.babies.map((b) =>
-    `<button type="button" class="chip" data-baby="${b.id}" style="--baby-color:${escapeHtml(b.color)}">${escapeHtml(b.name)}</button>`
+    `<button type="button" class="chip" data-baby="${b.id}" style="--baby-color:${escapeHtml(b.color)}">${babyLabel(b)}</button>`
   ).join('');
 
   $$('.unit-label').forEach((el) => (el.textContent = unit));
   const amount = $('#amount');
   amount.step = unit === 'ml' ? '5' : '0.5';
   amount.value = event ? fromMl(event.amountMl) : fromMl(lastValue('feed', 'amountMl')) || '';
-  const presets = unit === 'ml' ? [60, 90, 120, 150, 180] : [2, 3, 4, 5, 6];
+  const presets = unit === 'ml' ? [30, 45, 60, 75, 90, 120] : [1, 2, 3, 4, 5, 6];
   $('#amount-presets').innerHTML = presets.map((p) => `<button type="button" data-preset="${p}">${p} ${unit}</button>`).join('');
 
   $('#minutes').value = event?.minutes ?? '';
@@ -461,7 +572,12 @@ document.addEventListener('click', (ev) => {
     filter = t.dataset.filter;
     daysShown = DAYS_PER_PAGE;
     renderFilter();
-    renderHistory();
+    renderView();
+    return;
+  }
+  if (t.dataset.view) {
+    view = t.dataset.view;
+    renderView();
     return;
   }
   if (t.hasAttribute('data-close')) return t.closest('dialog').close();

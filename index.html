@@ -30,11 +30,16 @@
     </div>
 
     <section class="history">
+      <h2>History</h2>
       <div class="history-head">
-        <h2>History</h2>
+        <div id="view" class="seg small" role="group" aria-label="View">
+          <button type="button" data-view="log">Log</button>
+          <button type="button" data-view="week">Last 7 days</button>
+        </div>
         <div id="filter" class="seg small" role="group" aria-label="Filter by baby"></div>
       </div>
       <div id="history-list"></div>
+      <div id="week" hidden></div>
       <button id="more-btn" class="btn ghost" hidden>Show more</button>
     </section>
   </main>
@@ -102,8 +107,8 @@
         <fieldset>
           <legend>Diaper</legend>
           <div class="seg" data-field="diaper">
-            <button type="button" data-value="wet">Wet</button>
-            <button type="button" data-value="dirty">Dirty</button>
+            <button type="button" data-value="wet">💧 Pee</button>
+            <button type="button" data-value="dirty">💩 Poo</button>
             <button type="button" data-value="both">Both</button>
           </div>
         </fieldset>
@@ -141,8 +146,8 @@
       <fieldset>
         <legend>Bottle units</legend>
         <div class="seg" data-field="unit">
-          <button type="button" data-value="oz">oz</button>
           <button type="button" data-value="ml">ml</button>
+          <button type="button" data-value="oz">oz</button>
         </div>
       </fieldset>
 
