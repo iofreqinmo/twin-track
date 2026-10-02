@@ -1,5 +1,7 @@
 'use strict';
 
+// Keep in step with CACHE in sw.js; shown in Settings so you can tell which version is running.
+const APP_VERSION = 5;
 const STORAGE_KEY = 'twintrack.v1';
 const ML_PER_OZ = 29.5735;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -155,16 +157,21 @@ function describe(e) {
     const kind = e.wet && e.dirty ? 'Pee + poop' : e.dirty ? 'Poop' : 'Pee';
     return { icon: e.dirty ? '💩' : '💧', text: kind };
   }
-  if (e.method === 'breast') {
-    const parts = ['Breastfed'];
+  if (e.method === 'breast' || e.method === 'combo') {
+    const parts = [e.method === 'combo' ? 'Breast + bottle' : 'Breastfed'];
     if (e.side) parts.push(sideLabel(e.side));
     if (e.minutes) parts.push(`${e.minutes} min`);
+    if (e.method === 'combo' && e.amountMl) parts.push(formatAmount(e.amountMl));
     return { icon: '🤱', text: parts.join(' · ') };
   }
   const parts = ['Bottle'];
   if (e.amountMl) parts.push(formatAmount(e.amountMl));
   if (e.milk) parts.push(e.milk === 'formula' ? 'formula' : 'breast milk');
   return { icon: '🍼', text: parts.join(' · ') };
+}
+
+function usesBreast(e) {
+  return e.method === 'breast' || e.method === 'combo';
 }
 
 function sortedEvents() {
@@ -205,7 +212,7 @@ function renderCards() {
     let feedDetail = '';
     if (lastFeed) {
       feedDetail = describe(lastFeed).text;
-      const lastBreast = mine.find((e) => e.type === 'feed' && e.method === 'breast' && (e.side === 'L' || e.side === 'R'));
+      const lastBreast = mine.find((e) => e.type === 'feed' && usesBreast(e) && (e.side === 'L' || e.side === 'R'));
       if (lastBreast) feedDetail += ` · next: ${lastBreast.side === 'L' ? 'right' : 'left'}`;
     }
 
@@ -386,11 +393,11 @@ function syncEntryForm() {
   const dlg = $('#entry-dialog');
   $$('.seg[data-field]', dlg).forEach((seg) => setSeg(seg, form[seg.dataset.field]));
   $$('[data-show]', dlg).forEach((el) => {
-    const [key, val] = el.dataset.show.split('=');
-    el.hidden = form[key] !== val;
+    const [key, vals] = el.dataset.show.split('=');
+    el.hidden = !vals.split('|').includes(form[key]);
   });
   $$('.chip', dlg).forEach((chip) => chip.setAttribute('aria-pressed', form.who.includes(chip.dataset.baby)));
-  $('#who-hint').hidden = !(form.who.length > 1 && form.method === 'bottle');
+  $('#who-hint').hidden = !(form.who.length > 1 && (form.method === 'bottle' || form.method === 'combo'));
 }
 
 function lastValue(key, babyId) {
@@ -420,7 +427,7 @@ function openEntry({ babyId, event } = {}) {
       diaper: 'none',
     };
     // Suggest the opposite side from this baby's last single-side breastfeed.
-    const lastBreast = sortedEvents().find((e) => e.babyId === babyId && e.method === 'breast' && (e.side === 'L' || e.side === 'R'));
+    const lastBreast = sortedEvents().find((e) => e.babyId === babyId && usesBreast(e) && (e.side === 'L' || e.side === 'R'));
     if (lastBreast) form.side = lastBreast.side === 'L' ? 'R' : 'L';
   }
 
@@ -471,10 +478,11 @@ function saveEntry() {
   const records = [];
   if (form.method !== 'none') {
     const feed = { type: 'feed', method: form.method };
-    if (form.method === 'bottle') {
+    if (form.method !== 'breast') {
       feed.amountMl = toMl($('#amount').value) ?? undefined;
       feed.milk = form.milk;
-    } else {
+    }
+    if (form.method !== 'bottle') {
       feed.side = form.side;
       const mins = parseInt($('#minutes').value, 10);
       feed.minutes = mins > 0 ? mins : undefined;
@@ -526,6 +534,7 @@ function openSettings() {
       <input type="text" data-name="${b.id}" value="${escapeHtml(b.name)}" maxlength="24" aria-label="Name">
     </div>`).join('');
   setSeg($('#settings-dialog .seg[data-field="unit"]'), state.settings.unit);
+  $('#app-version').textContent = APP_VERSION;
   $('#settings-dialog').showModal();
 }
 
@@ -616,6 +625,13 @@ document.addEventListener('click', (ev) => {
       $('#amount').value = t.dataset.preset;
       return;
     }
+    if (t.dataset.step) {
+      const amount = $('#amount');
+      const step = parseFloat(amount.step);
+      const next = (parseFloat(amount.value) || 0) + step * Number(t.dataset.step);
+      amount.value = Math.max(0, Math.round(next / step) * step);
+      return;
+    }
     const seg = t.closest('.seg[data-field]');
     if (seg && t.dataset.value) {
       form[seg.dataset.field] = t.dataset.value;
@@ -704,7 +720,10 @@ window.addEventListener('storage', (ev) => {
 });
 
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden) render();
+  if (document.hidden) return;
+  render();
+  // Home-screen apps resume rather than reload, so look for an update each time we come back.
+  navigator.serviceWorker?.getRegistration().then((reg) => reg?.update()).catch(() => {});
 });
 
 // Re-render each minute so "Today" rolls over to "Yesterday" after midnight.
@@ -713,5 +732,14 @@ setInterval(render, 60 * 1000);
 render();
 
 if ('serviceWorker' in navigator && location.protocol !== 'file:') {
-  navigator.serviceWorker.register('sw.js').catch((err) => console.warn('Service worker failed', err));
+  const hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
+    .catch((err) => console.warn('Service worker failed', err));
+  // A new version took over: reload once so the new files are in use. Skip on first install.
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController || reloaded) return;
+    reloaded = true;
+    location.reload();
+  });
 }

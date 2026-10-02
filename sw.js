@@ -1,5 +1,5 @@
 // Bump CACHE when shipping changes so phones pick up the new version.
-const CACHE = 'twintrack-v4';
+const CACHE = 'twintrack-v5';
 const ASSETS = [
   './',
   'index.html',
@@ -24,10 +24,11 @@ self.addEventListener('activate', (event) => {
 });
 
 // Network first so updates show up when online; fall back to cache offline.
+// `no-cache` makes the browser revalidate instead of serving its own stale HTTP cache.
 self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   event.respondWith(
-    fetch(event.request)
+    fetch(event.request, { cache: 'no-cache' })
       .then((res) => {
         const copy = res.clone();
         caches.open(CACHE).then((cache) => cache.put(event.request, copy));

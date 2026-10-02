@@ -268,6 +268,17 @@ input:focus-visible, button:focus-visible { outline: 2px solid var(--primary); o
 }
 .chip[aria-pressed="true"] { background: var(--baby-color); color: #fff; }
 
+.stepper { display: grid; grid-template-columns: 52px 1fr 52px; gap: 8px; margin-top: -6px; }
+.stepper input { text-align: center; font-size: 1.15rem; font-weight: 600; }
+.stepper button {
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+  border-radius: 10px;
+  font-size: 1.5rem;
+  line-height: 1;
+  min-height: 44px;
+}
+.stepper button:active { filter: brightness(0.92); }
 .amount-presets { display: flex; gap: 6px; flex-wrap: wrap; margin-top: -6px; }
 .amount-presets button {
   border: 1px solid var(--border);

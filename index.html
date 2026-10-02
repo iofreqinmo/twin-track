@@ -53,13 +53,33 @@
           <button type="button" data-value="none">None</button>
           <button type="button" data-value="bottle">Bottle</button>
           <button type="button" data-value="breast">Breast</button>
+          <button type="button" data-value="combo">Combo</button>
         </div>
 
-        <div data-show="method=bottle" class="sheet-fields">
+        <div data-show="method=breast|combo" class="sheet-fields">
+          <fieldset>
+            <legend>Side</legend>
+            <div class="seg" data-field="side">
+              <button type="button" data-value="L">Left</button>
+              <button type="button" data-value="R">Right</button>
+              <button type="button" data-value="LR">Both</button>
+            </div>
+          </fieldset>
           <label class="field">
-            <span>Amount (<span class="unit-label">ml</span>)</span>
-            <input id="amount" type="number" inputmode="decimal" min="0">
+            <span>Breast duration (minutes)</span>
+            <input id="minutes" type="number" inputmode="numeric" min="0" step="1">
           </label>
+        </div>
+
+        <div data-show="method=bottle|combo" class="sheet-fields">
+          <label class="field" for="amount">
+            <span>Bottle amount (<span class="unit-label">ml</span>)</span>
+          </label>
+          <div class="stepper">
+            <button type="button" data-step="-1" aria-label="Less">−</button>
+            <input id="amount" type="number" inputmode="decimal" min="0">
+            <button type="button" data-step="1" aria-label="More">+</button>
+          </div>
           <div class="amount-presets" id="amount-presets"></div>
           <p id="who-hint" class="hint" hidden>Amount is per baby.</p>
           <fieldset>
@@ -71,20 +91,6 @@
           </fieldset>
         </div>
 
-        <div data-show="method=breast" class="sheet-fields">
-          <fieldset>
-            <legend>Side</legend>
-            <div class="seg" data-field="side">
-              <button type="button" data-value="L">Left</button>
-              <button type="button" data-value="R">Right</button>
-              <button type="button" data-value="LR">Both</button>
-            </div>
-          </fieldset>
-          <label class="field">
-            <span>Duration (minutes)</span>
-            <input id="minutes" type="number" inputmode="numeric" min="0" step="1">
-          </label>
-        </div>
       </section>
 
       <section id="diaper-section" class="sheet-section">
@@ -137,6 +143,7 @@
       <fieldset>
         <legend>Data</legend>
         <p class="hint">Entries are saved only on this device. Export a backup now and then.</p>
+        <p class="hint">App version <span id="app-version"></span></p>
         <div class="data-btns">
           <button type="button" class="btn secondary" id="export-json">Export backup</button>
           <button type="button" class="btn secondary" id="import-json">Import backup</button>
