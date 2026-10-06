@@ -1,7 +1,7 @@
 'use strict';
 
 // Keep in step with CACHE in sw.js; shown in Settings so you can tell which version is running.
-const APP_VERSION = 8;
+const APP_VERSION = 9;
 const STORAGE_KEY = 'twintrack.v1';
 const ML_PER_OZ = 29.5735;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -245,11 +245,15 @@ function renderCards() {
 
 // Last-24h feeds as columns on a time axis: height is ml, position is when it happened.
 // Breastfeeds with no amount show as a dot on the baseline. Tap a mark for its details.
+// A dashed reference line sits at 60 ml; the scale always leaves room above it.
+const CHART_REFERENCE_ML = 60;
+
 function feedChartHtml(feeds, totalMl) {
   const start = Date.now() - DAY_MS;
   const step = state.settings.unit === 'ml' ? 30 : ML_PER_OZ;
-  const maxMl = Math.max(60, ...feeds.map((e) => e.amountMl || 0));
+  const maxMl = Math.max(CHART_REFERENCE_ML * 1.5, ...feeds.map((e) => e.amountMl || 0));
   const topMl = Math.ceil(maxMl / step) * step;
+  const refPct = (CHART_REFERENCE_ML / topMl) * 100;
   const marks = [...feeds].sort((a, b) => new Date(a.time) - new Date(b.time)).map((e) => {
     const x = Math.min(97, Math.max(3, ((new Date(e.time) - start) / DAY_MS) * 100));
     const tip = `${formatTime(e.time)} · ${e.amountMl ? formatAmount(e.amountMl) : describe(e).text}`;
@@ -259,7 +263,10 @@ function feedChartHtml(feeds, totalMl) {
   return `
     <div class="feed-chart">
       <div class="chart-head"><span>Last 24h</span><b>${totalMl ? formatAmount(totalMl) : '—'}</b></div>
-      <div class="plot"><span class="ytick">${formatAmount(topMl)}</span>${marks}</div>
+      <div class="plot">
+        <div class="ref-line" style="bottom:${refPct.toFixed(1)}%"><span>${formatAmount(CHART_REFERENCE_ML)}</span></div>
+        ${marks}
+      </div>
       <div class="chart-axis"><span>24h ago</span><span>now</span></div>
     </div>`;
 }

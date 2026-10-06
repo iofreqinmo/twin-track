@@ -148,11 +148,20 @@ main { max-width: 720px; margin: 0 auto; padding: 0 16px 32px; }
 .plot {
   position: relative;
   height: 56px;
-  margin-top: 12px;
-  border-top: 1px dashed var(--border);
+  margin: 4px 26px 0 0; /* right gutter holds the 60 ml label */
   border-bottom: 1px solid var(--muted);
 }
-.plot .ytick { position: absolute; top: -13px; left: 0; font-size: 0.62rem; color: var(--muted); line-height: 1; font-variant-numeric: tabular-nums; }
+.plot .ref-line { position: absolute; left: 0; right: 0; border-top: 1px dashed var(--muted); opacity: 0.8; pointer-events: none; }
+.plot .ref-line span {
+  position: absolute;
+  left: calc(100% + 3px);
+  top: -0.35em;
+  white-space: nowrap;
+  font-size: 0.6rem;
+  line-height: 1;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
 .plot .bar {
   position: absolute;
   top: 0;
@@ -170,7 +179,7 @@ main { max-width: 720px; margin: 0 auto; padding: 0 16px 32px; }
 .plot .bar span { width: 6px; min-height: 2px; background: var(--baby-color); border-radius: 3px 3px 0 0; }
 .plot .bar.no-ml span { width: 6px; height: 6px !important; min-height: 0; border-radius: 50%; margin-bottom: -3px; opacity: 0.55; }
 .plot .bar.active span, .plot .bar:hover span { filter: brightness(1.15); outline: 2px solid var(--surface); box-shadow: 0 0 0 3px var(--baby-color); }
-.chart-axis { display: flex; justify-content: space-between; font-size: 0.62rem; color: var(--muted); min-height: 1.2em; }
+.chart-axis { margin-right: 26px; display: flex; justify-content: space-between; font-size: 0.62rem; color: var(--muted); min-height: 1.2em; }
 .chart-axis .tip { color: var(--text); font-weight: 600; font-size: 0.72rem; margin: 0 auto; white-space: nowrap; }
 
 .card .log-btn { background: var(--baby-color); color: #fff; font-size: 1.1rem; padding: 12px 4px; margin-top: auto; }
