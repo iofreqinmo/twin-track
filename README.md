@@ -2,12 +2,12 @@
 
 A simple phone-friendly app for tracking twin infants' feedings and diapers.
 
-- **At a glance:** cards for RCG 👧 and HDG 👦 show the time of the last feed and last diaper, plus feeds, poops, pees and ml eaten in the last 24 hours.
+- **At a glance:** cards for RCG 👧 and HDG 👦 show the time of the last feed and last diaper, a bar chart of every feed in the last 24 hours (ml per feed, with the 24-hour total), plus feeds, poops and pees.
 - **One Log button per baby:** opens a single screen with Feeding and Diaper sections. Fill in either or both, and tap the other twin's name to log for both at once.
-- **Feeds:** bottle (amount in ml with ±5 ml buttons, breast milk or formula), breast (side, minutes), or combo (both). It suggests the next side.
+- **Feeds:** bottle (amount in ml with ±5 ml buttons; breast milk, formula or a combo of both), breast (side, minutes), or combo (both). It suggests the next side.
 - **Diapers:** pee, poop, or both.
-- **History → Today:** total volume, average volume per feed, poops and pees for each baby, plus today's entries.
-- **History → Last 7 days:** the same four numbers for each day, with a daily average. Tap a day to see or edit its entries. Tap an entry to edit or delete it (deletes can be undone).
+- **History → Today:** total volume, average volume per feed, feeds, poops and pees for each baby, plus today's entries.
+- **History → Last 7 days:** the same numbers for each day, with a daily average. Tap a day to see or edit its entries. Tap an entry to edit or delete it (deletes can be undone).
 - **Settings:** baby names and colors, ml or oz, backup export/import (JSON), CSV export for the pediatrician.
 - Works offline, follows your phone's dark mode for night feeds, and can be installed to the home screen.
 

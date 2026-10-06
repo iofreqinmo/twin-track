@@ -1,7 +1,7 @@
 'use strict';
 
 // Keep in step with CACHE in sw.js; shown in Settings so you can tell which version is running.
-const APP_VERSION = 7;
+const APP_VERSION = 8;
 const STORAGE_KEY = 'twintrack.v1';
 const ML_PER_OZ = 29.5735;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -166,9 +166,11 @@ function describe(e) {
   }
   const parts = ['Bottle'];
   if (e.amountMl) parts.push(formatAmount(e.amountMl));
-  if (e.milk) parts.push(e.milk === 'formula' ? 'formula' : 'breast milk');
+  if (e.milk) parts.push(MILK_LABELS[e.milk] || e.milk);
   return { icon: '🍼', text: parts.join(' · ') };
 }
+
+const MILK_LABELS = { breastmilk: 'breast milk', formula: 'formula', combo: 'breast milk + formula' };
 
 function usesBreast(e) {
   return e.method === 'breast' || e.method === 'combo';
@@ -207,7 +209,8 @@ function renderCards() {
     const mine = events.filter((e) => e.babyId === b.id);
     const lastFeed = mine.find((e) => e.type === 'feed');
     const lastDiaper = mine.find((e) => e.type === 'diaper');
-    const t = totals(mine.filter((e) => new Date(e.time) >= since));
+    const recent = mine.filter((e) => new Date(e.time) >= since);
+    const t = totals(recent);
 
     let feedDetail = '';
     if (lastFeed) {
@@ -228,15 +231,50 @@ function renderCards() {
           Last diaper
           <strong>${lastDiaper ? formatWhen(lastDiaper.time) : '—'}</strong>
         </div>
+        ${feedChartHtml(recent.filter((e) => e.type === 'feed'), t.ml)}
         <div class="stats">
           <div><b>${t.feeds}</b><span>feeds</span></div>
           <div><b>${t.poops}</b><span>poops</span></div>
           <div><b>${t.pees}</b><span>pees</span></div>
         </div>
-        <div class="stats-label">last 24h${t.ml ? ` · ${formatAmount(t.ml)} eaten` : ''}</div>
+        <div class="stats-label">last 24h</div>
         <button class="btn log-btn" data-log="${b.id}" aria-label="Log for ${escapeHtml(b.name)}">＋ Log</button>
       </article>`;
   }).join('');
+}
+
+// Last-24h feeds as columns on a time axis: height is ml, position is when it happened.
+// Breastfeeds with no amount show as a dot on the baseline. Tap a mark for its details.
+function feedChartHtml(feeds, totalMl) {
+  const start = Date.now() - DAY_MS;
+  const step = state.settings.unit === 'ml' ? 30 : ML_PER_OZ;
+  const maxMl = Math.max(60, ...feeds.map((e) => e.amountMl || 0));
+  const topMl = Math.ceil(maxMl / step) * step;
+  const marks = [...feeds].sort((a, b) => new Date(a.time) - new Date(b.time)).map((e) => {
+    const x = Math.min(97, Math.max(3, ((new Date(e.time) - start) / DAY_MS) * 100));
+    const tip = `${formatTime(e.time)} · ${e.amountMl ? formatAmount(e.amountMl) : describe(e).text}`;
+    const h = e.amountMl ? (e.amountMl / topMl) * 100 : 0;
+    return `<button type="button" class="bar${e.amountMl ? '' : ' no-ml'}" style="left:${x.toFixed(2)}%" data-tip="${escapeHtml(tip)}" aria-label="${escapeHtml(tip)}"><span style="height:${h.toFixed(1)}%"></span></button>`;
+  }).join('');
+  return `
+    <div class="feed-chart">
+      <div class="chart-head"><span>Last 24h</span><b>${totalMl ? formatAmount(totalMl) : '—'}</b></div>
+      <div class="plot"><span class="ytick">${formatAmount(topMl)}</span>${marks}</div>
+      <div class="chart-axis"><span>24h ago</span><span>now</span></div>
+    </div>`;
+}
+
+function showTip(bar) {
+  const chart = bar.closest('.feed-chart');
+  const axis = $('.chart-axis', chart);
+  $$('.bar.active', chart).forEach((b) => b.classList.remove('active'));
+  bar.classList.add('active');
+  axis.innerHTML = `<span class="tip">${escapeHtml(bar.dataset.tip)}</span>`;
+  clearTimeout(showTip.timer);
+  showTip.timer = setTimeout(() => {
+    bar.classList.remove('active');
+    axis.innerHTML = '<span>24h ago</span><span>now</span>';
+  }, 4000);
 }
 
 function renderFilter() {
@@ -313,6 +351,7 @@ function todayHtml() {
         <div class="tiles">
           <div><b>${t.ml ? formatAmount(t.ml) : '—'}</b><span>total</span></div>
           <div><b>${t.bottles ? formatAmount(t.ml / t.bottles) : '—'}</b><span>avg / feed</span></div>
+          <div><b>${t.feeds}</b><span>🍼 feeds</span></div>
           <div><b>${t.poops}</b><span>💩 poops</span></div>
           <div><b>${t.pees}</b><span>💧 pees</span></div>
         </div>
@@ -333,7 +372,9 @@ function weekHtml() {
     const start = addDays(today, -i);
     return { start, end: addDays(start, 1) };
   });
-  const amount = (ml) => (ml ? formatAmount(ml) : '—');
+  // Bare numbers in the cells; the unit sits in the column heading to keep six columns on a phone.
+  const amount = (ml) => (ml ? formatAmount(ml).replace(/ (ml|oz)$/, '') : '—');
+  const unit = state.settings.unit;
   const count = (n) => (n ? Math.round(n * 10) / 10 : '—');
 
   return visibleBabies().map((b) => {
@@ -356,25 +397,27 @@ function weekHtml() {
         <tr class="day-row" data-day="${r.key}" aria-expanded="${open}">
           <th><span class="chev" aria-hidden="true">›</span>${dayLabel(r.start, true)}</th>
           <td>${amount(r.t.ml)}</td>
-          <td>${r.t.bottles ? formatAmount(r.t.ml / r.t.bottles) : '—'}</td>
+          <td>${amount(r.t.bottles && r.t.ml / r.t.bottles)}</td>
+          <td>${count(r.t.feeds)}</td>
           <td>${count(r.t.poops)}</td>
           <td>${count(r.t.pees)}</td>
         </tr>`;
       if (!open) return row;
       const events = [...r.events].sort((x, y) => new Date(y.time) - new Date(x.time));
-      return row + `<tr class="day-detail"><td colspan="5">${entryListHtml(events)}</td></tr>`;
+      return row + `<tr class="day-detail"><td colspan="6">${entryListHtml(events)}</td></tr>`;
     }).join('');
 
     return `
       <div class="week-baby" style="--baby-color:${escapeHtml(b.color)}">
         <h3>${babyLabel(b)}</h3>
         <table class="week-table">
-          <thead><tr><th>Day</th><th>Total</th><th>Avg/feed</th><th>Poops</th><th>Pees</th></tr></thead>
+          <thead><tr><th>Day</th><th>Total<small>${unit}</small></th><th>Avg/feed<small>${unit}</small></th><th>Feeds</th><th>Poops</th><th>Pees</th></tr></thead>
           <tbody>${body}</tbody>
           <tfoot><tr>
             <th>Daily avg</th>
             <td>${amount(perDay('ml'))}</td>
-            <td>${sum('bottles') ? formatAmount(sum('ml') / sum('bottles')) : '—'}</td>
+            <td>${amount(sum('bottles') && sum('ml') / sum('bottles'))}</td>
+            <td>${count(perDay('feeds'))}</td>
             <td>${count(perDay('poops'))}</td>
             <td>${count(perDay('pees'))}</td>
           </tr></tfoot>
@@ -775,6 +818,7 @@ document.addEventListener('click', (ev) => {
   if (!t) return;
 
   if (t.dataset.log) return openEntry({ babyId: t.dataset.log });
+  if (t.dataset.tip) return showTip(t);
   if (t.dataset.edit) {
     const e = state.events.find((x) => x.id === t.dataset.edit);
     if (e) openEntry({ event: e });
@@ -828,6 +872,11 @@ document.addEventListener('click', (ev) => {
     save();
     render();
   }
+});
+
+document.addEventListener('pointerover', (ev) => {
+  const bar = ev.pointerType === 'mouse' && ev.target.closest('.bar');
+  if (bar) showTip(bar);
 });
 
 $('#entry-form').addEventListener('submit', (ev) => {
