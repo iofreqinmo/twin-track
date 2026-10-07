@@ -40,7 +40,7 @@ body {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
-button, input { font: inherit; color: inherit; }
+button, input, select { font: inherit; color: inherit; }
 button { cursor: pointer; }
 
 .topbar {
@@ -323,7 +323,7 @@ fieldset { border: 0; margin: 0; padding: 0; display: flex; flex-direction: colu
 legend, .field > span { font-size: 0.8rem; color: var(--muted); font-weight: 600; padding: 0; margin-bottom: 6px; }
 .field { display: flex; flex-direction: column; }
 .field > span { margin-bottom: 4px; }
-input[type="number"], input[type="text"], input[type="datetime-local"] {
+input[type="number"], input[type="text"], select {
   border: 1px solid var(--border);
   background: var(--bg);
   border-radius: 10px;
@@ -332,6 +332,9 @@ input[type="number"], input[type="text"], input[type="datetime-local"] {
   width: 100%;
 }
 input:focus-visible, button:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+
+.time-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+select { appearance: none; -webkit-appearance: none; font-weight: 600; text-align: center; text-align-last: center; }
 
 .chips { display: flex; gap: 8px; flex-wrap: wrap; }
 .chip {

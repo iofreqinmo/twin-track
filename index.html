@@ -104,10 +104,13 @@
         </div>
       </section>
 
-      <label class="field">
+      <div class="field">
         <span>Time</span>
-        <input id="time" type="datetime-local" required>
-      </label>
+        <div class="time-row">
+          <select id="time-day" aria-label="Day"></select>
+          <select id="time-clock" aria-label="Time"></select>
+        </div>
+      </div>
 
       <label class="field">
         <span>Note</span>

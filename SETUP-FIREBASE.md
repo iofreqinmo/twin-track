@@ -29,10 +29,11 @@ You sign in to Firebase with your normal Google account.
 
 ## 5. Lock it to your family
 1. Still in Firestore, open the **Rules** tab.
-2. Replace everything there with the contents of [`firestore.rules`](firestore.rules), with your family's Gmail addresses in the list.
+2. Replace everything there with the contents of [`firestore.rules`](firestore.rules), and swap the two placeholder addresses for your family's Gmail addresses.
 3. Click **Publish**.
 
-To add someone later, add their email to the list, publish again, and update `firestore.rules` here to match.
+The real addresses live only in the console. Don't put them back into `firestore.rules` in the repo.
+To add someone later, add their email to the list in the console and publish again.
 
 ## 6. Use it
 Open the app and tap **Sign in with Google**. The first time each phone signs in, any entries it logged on its own are uploaded to the shared log.

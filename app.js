@@ -1,7 +1,7 @@
 'use strict';
 
 // Keep in step with CACHE in sw.js; shown in Settings so you can tell which version is running.
-const APP_VERSION = 9;
+const APP_VERSION = 10;
 const STORAGE_KEY = 'twintrack.v1';
 const ML_PER_OZ = 29.5735;
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -42,7 +42,7 @@ let view = 'today';
 let expandedDay = null; // `${babyId}|${dayStartMs}` row opened in the 7-day table
 let editingId = null;
 let form = {};
-let initialTime = null; // { input, iso } so an untouched time field keeps full precision
+let initialTime = null; // { day, clock, iso, isNew } so an untouched time on an old entry keeps its exact value
 
 const $ = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
@@ -176,8 +176,45 @@ function usesBreast(e) {
   return e.method === 'breast' || e.method === 'combo';
 }
 
+// Newest first. Times are on the quarter hour, so entries in the same slot fall back to
+// when they were logged.
 function sortedEvents() {
-  return [...state.events].sort((a, b) => new Date(b.time) - new Date(a.time));
+  return [...state.events].sort((a, b) => new Date(b.time) - new Date(a.time) || (b.createdAt || 0) - (a.createdAt || 0));
+}
+
+const QUARTER_MS = 15 * 60 * 1000;
+
+function nearestQuarter(date) {
+  return new Date(Math.round(new Date(date).getTime() / QUARTER_MS) * QUARTER_MS);
+}
+
+function pad(n) {
+  return String(n).padStart(2, '0');
+}
+
+// Fills the day and quarter-hour pickers. `extra` keeps an old entry's off-quarter time selectable.
+function fillTimePickers(date, extra) {
+  const d = new Date(date);
+  const selectedDay = toLocalInput(d).slice(0, 10);
+  const selectedClock = `${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+  const days = [];
+  const first = startOfDay(nearestQuarter(new Date()));
+  for (let i = 0; i < WEEK_DAYS; i++) days.push(addDays(first, -i));
+  if (!days.some((x) => toLocalInput(x).slice(0, 10) === selectedDay)) days.push(startOfDay(d));
+  $('#time-day').innerHTML = days.map((x) => {
+    const value = toLocalInput(x).slice(0, 10);
+    return `<option value="${value}"${value === selectedDay ? ' selected' : ''}>${dayLabel(x, true)}</option>`;
+  }).join('');
+
+  const clocks = [];
+  for (let m = 0; m < 24 * 60; m += 15) clocks.push(`${pad(Math.floor(m / 60))}:${pad(m % 60)}`);
+  if (extra && !clocks.includes(selectedClock)) clocks.push(selectedClock), clocks.sort();
+  const label = (hhmm) => formatTime(new Date(`2000-01-01T${hhmm}`));
+  $('#time-clock').innerHTML = clocks.map((c) =>
+    `<option value="${c}"${c === selectedClock ? ' selected' : ''}>${label(c)}</option>`
+  ).join('');
+  return { day: selectedDay, clock: selectedClock };
 }
 
 function toast(message, action) {
@@ -499,9 +536,8 @@ function openEntry({ babyId, event } = {}) {
   $('#amount-presets').innerHTML = presets.map((p) => `<button type="button" data-preset="${p}">${p} ${unit}</button>`).join('');
 
   $('#minutes').value = event?.minutes ?? '';
-  const iso = event ? event.time : new Date().toISOString();
-  initialTime = { input: toLocalInput(iso), iso, isNew: !event };
-  $('#time').value = initialTime.input;
+  const when = event ? new Date(event.time) : nearestQuarter(new Date());
+  initialTime = { ...fillTimePickers(when, !!event), iso: when.toISOString(), isNew: !event };
   $('#note').value = event?.note || '';
   $('#delete-btn').hidden = !event;
 
@@ -519,11 +555,11 @@ function saveEntry() {
     toast('Choose a feeding or a diaper');
     return false;
   }
-  const input = $('#time').value;
-  let time;
-  if (!input) time = new Date().toISOString();
-  else if (input === initialTime.input) time = initialTime.isNew ? new Date().toISOString() : initialTime.iso;
-  else time = new Date(input).toISOString();
+  const day = $('#time-day').value;
+  const clock = $('#time-clock').value;
+  const untouched = day === initialTime.day && clock === initialTime.clock;
+  // Save what the pickers show; an old entry's exact time is kept unless it was changed.
+  const time = untouched && !initialTime.isNew ? initialTime.iso : new Date(`${day}T${clock}`).toISOString();
 
   const records = [];
   if (form.method !== 'none') {
@@ -550,9 +586,11 @@ function saveEntry() {
   if (note) records[0].note = note;
 
   if (editingId) {
-    writeEvents([{ id: editingId, babyId: form.who[0], time, ...records[0] }]);
+    const createdAt = state.events.find((e) => e.id === editingId)?.createdAt;
+    writeEvents([{ id: editingId, babyId: form.who[0], time, createdAt, ...records[0] }]);
   } else {
-    writeEvents(form.who.flatMap((babyId) => records.map((r) => ({ id: uid(), babyId, time, ...r }))));
+    const createdAt = Date.now();
+    writeEvents(form.who.flatMap((babyId) => records.map((r, i) => ({ id: uid(), babyId, time, createdAt: createdAt + i, ...r }))));
   }
   toast(editingId ? 'Entry updated' : 'Saved');
   return true;
